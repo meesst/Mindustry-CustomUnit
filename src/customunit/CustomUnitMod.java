@@ -10,6 +10,7 @@ import mindustry.mod.*;
 import mindustry.ui.dialogs.*;
 import mindustry.world.blocks.units.UnitFactory;
 import mindustry.type.Category;
+import mindustry.type.ItemStack;
 import customunit.blocks.unit.DerivativeUnitFactory;
 
 public class CustomUnitMod extends Mod{
