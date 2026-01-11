@@ -379,7 +379,7 @@ public class DerivativeUnitFactory extends UnitFactory {
                             Floor floor = tile.floor();
                             Block wall = tile.block() instanceof StaticWall ? tile.block() : null;
                             Block building = tile.build != null ? tile.block() : null;
-                            int rotation = tile.rotation();
+                            int rotation = tile.build != null ? tile.build.rotation : 0;
                             
                             mapStateA.tileStates[i][j] = new TileState(floor, wall, building, rotation);
                         } else {
@@ -411,7 +411,7 @@ public class DerivativeUnitFactory extends UnitFactory {
                         if (tile != null && tile.build != null) {
                             // 保存建筑状态
                             Block buildingType = tile.block();
-                            int rotation = tile.rotation();
+                            int rotation = tile.build != null ? tile.build.rotation : 0;
                             mapStateB.addBuilding(buildingType, worldX, worldY, rotation);
                         }
                     }
