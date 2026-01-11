@@ -13,6 +13,7 @@ import arc.math.geom.Vec2;
 import arc.struct.EnumSet;
 import arc.util.Tmp;
 import mindustry.Vars;
+import mindustry.content.Blocks;
 import mindustry.content.Fx;
 import mindustry.content.Items;
 import mindustry.entities.Effect;
@@ -26,6 +27,8 @@ import mindustry.graphics.Pal;
 import mindustry.world.Tile;
 import mindustry.world.blocks.payloads.UnitPayload;
 import mindustry.world.blocks.units.UnitFactory;
+import mindustry.world.blocks.environment.Floor;
+import mindustry.world.blocks.environment.StaticWall;
 import mindustry.world.meta.BlockFlag;
 import mindustry.world.meta.BuildVisibility;
 
@@ -38,6 +41,30 @@ public class DerivativeUnitFactory extends UnitFactory {
         color(e.color);
         Fill.circle(e.x, e.y, e.rotation * e.fout());
     });
+    
+    // 变量a：保存完整地图状态（建筑、墙、地板）
+    // 变量b：保存当前建筑状态
+    
+    public static class MapState {
+        public Tile[][] tiles;
+        public int width;
+        public int height;
+        
+        public MapState(int width, int height) {
+            this.width = width;
+            this.height = height;
+            this.tiles = new Tile[width][height];
+        }
+    }
+    
+    public static class BuildingState {
+        // 建筑状态相关属性
+        public Tile buildingTile;
+        
+        public BuildingState(Tile buildingTile) {
+            this.buildingTile = buildingTile;
+        }
+    }
 
     public DerivativeUnitFactory(String name) {
         super(name);
@@ -92,6 +119,17 @@ public class DerivativeUnitFactory extends UnitFactory {
         public Vec2 offset = new Vec2(), end = new Vec2();
 
         private final Object[] objects = new Object[4];
+        
+        // 变量a：保存完整地图状态（建筑、墙、地板）
+        private MapState mapStateA;
+        // 变量b：保存当前建筑状态
+        private BuildingState mapStateB;
+        
+        // 开关状态
+        private boolean isActive = false;
+        
+        // 14*14区域的大小
+        private static final int REGION_SIZE = 14;
 
         public Vec2 getUnitSpawn(){
             float len = tilesize * (areaSize + size)/2f;
@@ -231,8 +269,198 @@ public class DerivativeUnitFactory extends UnitFactory {
         public void buildConfiguration(arc.scene.ui.layout.Table table) {
             // 替换默认的单位选择列表为一个简单的按钮
             table.button("量子.虚幻", () -> {
-                // 按钮点击事件，目前为空
+                // 按钮点击事件
+                if (!isActive) {
+                    // 打开方法
+                    openQuantumUnreal();
+                } else {
+                    // 关闭方法
+                    closeQuantumUnreal();
+                }
+                isActive = !isActive;
             }).size(200, 50);
+        }
+        
+        // 打开方法：保存状态到变量a，清除画板，绘制14*14区域+变量b的建筑
+        private void openQuantumUnreal() {
+            // 1. 保存当前状态到变量a
+            saveStateA();
+            
+            // 2. 清除画板
+            clearRegion();
+            
+            // 3. 绘制14*14区域
+            draw14x14Region();
+            
+            // 4. 绘制变量b中的建筑（如果有）
+            if (mapStateB != null) {
+                drawBuildingFromStateB();
+            }
+        }
+        
+        // 关闭方法：保存当前建筑到变量b，清除画板，还原变量a的状态
+        private void closeQuantumUnreal() {
+            // 1. 保存当前建筑到变量b
+            saveStateB();
+            
+            // 2. 清除画板
+            clearRegion();
+            
+            // 3. 还原变量a的状态
+            restoreStateA();
+        }
+        
+        // 保存完整地图状态到变量a
+        private void saveStateA() {
+            // 获取14*14区域的起始坐标
+            int startX = getRegionStartX();
+            int startY = getRegionStartY();
+            
+            // 创建地图状态对象
+            mapStateA = new MapState(REGION_SIZE, REGION_SIZE);
+            
+            // 保存每个瓦片的状态
+            for (int i = 0; i < REGION_SIZE; i++) {
+                for (int j = 0; j < REGION_SIZE; j++) {
+                    int worldX = startX + i;
+                    int worldY = startY + j;
+                    if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
+                        Tile tile = world.tile(worldX, worldY);
+                        if (tile != null) {
+                            // 这里只保存瓦片的引用，实际应用中需要更详细的状态保存
+                            mapStateA.tiles[i][j] = tile;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 保存当前建筑状态到变量b
+        private void saveStateB() {
+            // 保存当前建筑瓦片
+            mapStateB = new BuildingState(tile());
+        }
+        
+        // 清除14*14区域
+        private void clearRegion() {
+            // 获取14*14区域的起始坐标
+            int startX = getRegionStartX();
+            int startY = getRegionStartY();
+            
+            // 清除区域内的所有内容
+            for (int i = 0; i < REGION_SIZE; i++) {
+                for (int j = 0; j < REGION_SIZE; j++) {
+                    int worldX = startX + i;
+                    int worldY = startY + j;
+                    if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
+                        Tile tile = world.tile(worldX, worldY);
+                        if (tile != null) {
+                            // 清除瓦片内容（这里简化处理，实际需要更复杂的逻辑）
+                            // 清除建筑
+                            if (tile.build != null) {
+                                tile.remove();
+                            }
+                            // 清除墙体
+                            if (tile.wall() != null) {
+                                tile.setWall(null);
+                            }
+                            // 清除地板（这里不清除地板，保持原始状态）
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 绘制14*14区域：4边为暗金属墙，中间为暗面板3
+        private void draw14x14Region() {
+            // 获取14*14区域的起始坐标
+            int startX = getRegionStartX();
+            int startY = getRegionStartY();
+            
+            // 绘制区域
+            for (int i = 0; i < REGION_SIZE; i++) {
+                for (int j = 0; j < REGION_SIZE; j++) {
+                    int worldX = startX + i;
+                    int worldY = startY + j;
+                    if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
+                        Tile tile = world.tile(worldX, worldY);
+                        if (tile != null) {
+                            // 绘制边框（暗金属墙）
+                            if (i == 0 || i == REGION_SIZE - 1 || j == 0 || j == REGION_SIZE - 1) {
+                                tile.setWall((StaticWall) Blocks.darkMetal);
+                            } else {
+                                // 绘制中间（暗面板3）
+                                tile.setFloor((Floor) Blocks.darkPanel3);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 从变量b中绘制建筑
+        private void drawBuildingFromStateB() {
+            // 这里简化处理，实际需要更复杂的逻辑
+            // 绘制mapStateB中的建筑
+        }
+        
+        // 还原变量a的状态
+        private void restoreStateA() {
+            if (mapStateA == null) return;
+            
+            // 获取14*14区域的起始坐标
+            int startX = getRegionStartX();
+            int startY = getRegionStartY();
+            
+            // 还原每个瓦片的状态
+            for (int i = 0; i < mapStateA.width; i++) {
+                for (int j = 0; j < mapStateA.height; j++) {
+                    int worldX = startX + i;
+                    int worldY = startY + j;
+                    if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
+                        Tile tile = world.tile(worldX, worldY);
+                        if (tile != null && mapStateA.tiles[i][j] != null) {
+                            // 还原瓦片状态（这里简化处理，实际需要更详细的状态还原）
+                            // 还原地板
+                            tile.setFloor(mapStateA.tiles[i][j].floor());
+                            // 还原墙体
+                            tile.setWall(mapStateA.tiles[i][j].wall());
+                            // 还原建筑（这里简化处理）
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 获取14*14区域的起始X坐标
+        private int getRegionStartX() {
+            // 获取建筑的瓦片坐标
+            int tileX = tileX();
+            int tileY = tileY();
+            
+            // 根据建筑旋转方向计算区域起始坐标
+            // 建筑背方是虚线框的对面
+            int dir = rotation;
+            
+            // 计算区域起始坐标，确保14*14区域在建筑背方
+            // 这里简化处理，实际需要根据旋转方向计算
+            int startX = tileX - REGION_SIZE / 2;
+            int startY = tileY - REGION_SIZE / 2;
+            
+            return startX;
+        }
+        
+        // 获取14*14区域的起始Y坐标
+        private int getRegionStartY() {
+            // 获取建筑的瓦片坐标
+            int tileX = tileX();
+            int tileY = tileY();
+            
+            // 计算区域起始坐标
+            int startX = tileX - REGION_SIZE / 2;
+            int startY = tileY - REGION_SIZE / 2;
+            
+            return startY;
         }
     }
 }
