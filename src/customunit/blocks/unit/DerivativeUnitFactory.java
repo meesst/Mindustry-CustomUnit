@@ -26,6 +26,7 @@ import mindustry.graphics.Layer;
 import mindustry.graphics.Pal;
 import mindustry.world.Tile;
 import mindustry.entities.units.BuildPlan;
+import mindustry.game.Schematic;
 import mindustry.world.Block;
 import mindustry.world.blocks.payloads.UnitPayload;
 import mindustry.world.blocks.units.UnitFactory;
@@ -44,8 +45,10 @@ public class DerivativeUnitFactory extends UnitFactory {
         Fill.circle(e.x, e.y, e.rotation * e.fout());
     });
     
-    // 使用游戏内置的BuildPlan类保存建筑计划
-
+    // 使用游戏内置的Schematic类保存建筑计划
+    protected Schematic mapStateA;
+    protected Schematic mapStateB;
+    
     public DerivativeUnitFactory(String name) {
         super(name);
 
@@ -296,8 +299,8 @@ public class DerivativeUnitFactory extends UnitFactory {
             int startX = getRegionStartX();
             int startY = getRegionStartY();
             
-            // 创建建筑计划列表
-            mapStateA = new java.util.ArrayList<>();
+            // 创建Schematic的tiles列表
+            Seq<Schematic.Stile> tiles = new Seq<>();
             
             // 保存每个瓦片的状态
             for (int i = 0; i < REGION_SIZE; i++) {
@@ -307,52 +310,40 @@ public class DerivativeUnitFactory extends UnitFactory {
                     if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
                         Tile tile = world.tile(worldX, worldY);
                         if (tile != null) {
-                            // 保存建筑（如果有）
-                            if (tile.build != null) {
-                                int rotation = tile.build.rotation;
-                                Block buildingType = tile.block();
-                                Object config = tile.build.config();
-                                
-                                // 对于任意大小的建筑，使用其中心瓦片来计算原点坐标
-                                int centerX = tile.centerX();
-                                int centerY = tile.centerY();
-                                int offset = (buildingType.size - 1) / 2;
-                                int originX = centerX - offset;
-                                int originY = centerY - offset;
-                                
-                                // 创建建筑计划，包含配置信息
-                                BuildPlan plan = new BuildPlan(originX, originY, rotation, buildingType, config);
-                                mapStateA.add(plan);
-                            } 
-                            // 保存墙（如果有）
-                            else if (tile.block() instanceof StaticWall) {
-                                Block wallType = tile.block();
-                                // 创建墙计划（旋转角度为0，因为墙没有旋转）
-                                BuildPlan plan = new BuildPlan(worldX, worldY, 0, wallType);
-                                mapStateA.add(plan);
+                            Block block = tile.block();
+                            if (block != Blocks.air) {
+                                // 计算相对于区域左上角的本地坐标
+                                int localX = i;
+                                int localY = j;
+                                Object config = tile.build != null ? tile.build.config() : null;
+                                byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
+                                tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
                             }
                             // 保存地板
                             Floor floorType = tile.floor();
-                            // 创建地板计划（使用特殊标记，因为BuildPlan主要用于建筑）
-                            // 我们将使用null作为block，表示这是一个地板计划
-                            BuildPlan floorPlan = new BuildPlan(worldX, worldY, 0, null);
-                            // 使用floorType作为config，方便识别
-                            floorPlan.config = floorType;
-                            mapStateA.add(floorPlan);
+                            if (floorType != Blocks.air.asFloor()) {
+                                // 计算相对于区域左上角的本地坐标
+                                int localX = i;
+                                int localY = j;
+                                tiles.add(new Schematic.Stile(floorType.asFloor(), localX, localY, null, 0));
+                            }
                         }
                     }
                 }
             }
+            
+            // 创建Schematic对象保存整个地图状态
+            mapStateA = new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
         }
         
         // 保存当前建筑状态到变量b
         private void saveStateB() {
-            // 创建建筑计划列表
-            mapStateB = new java.util.ArrayList<>();
-            
             // 获取14*14区域的起始坐标
             int startX = getRegionStartX();
             int startY = getRegionStartY();
+            
+            // 创建Schematic的tiles列表
+            Seq<Schematic.Stile> tiles = new Seq<>();
             
             // 保存区域内所有建筑的状态
             for (int i = 0; i < REGION_SIZE; i++) {
@@ -367,20 +358,19 @@ public class DerivativeUnitFactory extends UnitFactory {
                             int rotation = tile.build.rotation;
                             Object config = tile.build.config();
                             
-                            // 对于任意大小的建筑，使用其中心瓦片来计算原点坐标
-                            int centerX = tile.centerX();
-                            int centerY = tile.centerY();
-                            int offset = (buildingType.size - 1) / 2;
-                            int originX = centerX - offset;
-                            int originY = centerY - offset;
+                            // 计算相对于区域左上角的本地坐标
+                            int localX = i;
+                            int localY = j;
                             
-                            // 创建建筑计划，包含配置信息
-                            BuildPlan plan = new BuildPlan(originX, originY, rotation, buildingType, config);
-                            mapStateB.add(plan);
+                            // 创建Schematic.Stile对象
+                            tiles.add(new Schematic.Stile(buildingType, localX, localY, config, (byte)rotation));
                         }
                     }
                 }
             }
+            
+            // 创建Schematic对象保存当前建筑状态
+            mapStateB = new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
         }
         
         // 清除14*14区域
@@ -451,31 +441,30 @@ public class DerivativeUnitFactory extends UnitFactory {
         private void drawBuildingFromStateB() {
             if (mapStateB == null) return;
             
-            // 遍历所有保存的建筑计划
-            for (BuildPlan plan : mapStateB) {
-                if (plan != null && plan.block != null) {
-                    // 获取建筑类型、位置和旋转角度
-                    Block buildingType = plan.block;
-                    int worldX = plan.x;
-                    int worldY = plan.y;
-                    int rotation = plan.rotation;
-                    Object config = plan.config;
+            // 获取14*14区域的起始坐标
+            int startX = getRegionStartX();
+            int startY = getRegionStartY();
+            
+            // 遍历Schematic中的所有瓦片
+            for (Schematic.Stile stile : mapStateB.tiles) {
+                // 计算实际世界坐标
+                int worldX = startX + stile.x;
+                int worldY = startY + stile.y;
+                
+                // 获取对应位置的Tile对象
+                Tile tile = world.tile(worldX, worldY);
+                if (tile != null) {
+                    // 清除当前位置的建筑
+                    if (tile.build != null) {
+                        tile.remove();
+                    }
                     
-                    // 获取对应位置的Tile对象
-                    Tile tile = world.tile(worldX, worldY);
-                    if (tile != null) {
-                        // 清除当前位置的建筑（如果有）
-                        if (tile.build != null) {
-                            tile.remove();
-                        }
-                        
-                        // 创建新建筑
-                        tile.setBlock(buildingType, team, rotation);
-                        
-                        // 应用配置信息
-                        if (config != null && tile.build != null) {
-                            tile.build.configure(config);
-                        }
+                    // 创建新建筑
+                    tile.setBlock(stile.block, team, stile.rotation);
+                    
+                    // 应用配置信息
+                    if (stile.config != null && tile.build != null) {
+                        tile.build.configure(stile.config);
                     }
                 }
             }
@@ -485,44 +474,37 @@ public class DerivativeUnitFactory extends UnitFactory {
         private void restoreStateA() {
             if (mapStateA == null) return;
             
-            // 首先处理地板计划，因为它们是基础
-            for (BuildPlan plan : mapStateA) {
-                if (plan != null && plan.block == null && plan.config instanceof Floor) {
-                    // 这是一个地板计划
-                    int worldX = plan.x;
-                    int worldY = plan.y;
-                    Tile tile = world.tile(worldX, worldY);
-                    if (tile != null) {
-                        Floor floorType = (Floor) plan.config;
-                        // 还原地板
-                        tile.setFloor(floorType);
-                    }
-                }
-            }
+            // 获取14*14区域的起始坐标
+            int startX = getRegionStartX();
+            int startY = getRegionStartY();
             
-            // 然后处理墙和建筑计划
-            for (BuildPlan plan : mapStateA) {
-                if (plan != null && plan.block != null) {
-                    // 获取计划对应的Tile对象
-                    int worldX = plan.x;
-                    int worldY = plan.y;
-                    Tile tile = world.tile(worldX, worldY);
-                    if (tile != null) {
-                        // 先清除当前瓦片的内容
-                        if (tile.build != null) {
-                            tile.remove();
-                        }
-                        if (tile.block() instanceof StaticWall) {
-                            tile.setAir();
-                        }
-                        
+            // 遍历Schematic中的所有瓦片
+            for (Schematic.Stile stile : mapStateA.tiles) {
+                // 计算实际世界坐标
+                int worldX = startX + stile.x;
+                int worldY = startY + stile.y;
+                
+                // 获取对应位置的Tile对象
+                Tile tile = world.tile(worldX, worldY);
+                if (tile != null) {
+                    // 清除当前位置的建筑和墙
+                    if (tile.build != null) {
+                        tile.remove();
+                    }
+                    if (tile.block() != Blocks.air) {
+                        tile.setAir();
+                    }
+                    
+                    // 如果是地板，直接设置
+                    if (stile.block instanceof Floor) {
+                        tile.setFloor((Floor)stile.block);
+                    } else {
                         // 设置新的建筑或墙
-                        tile.setBlock(plan.block, team, plan.rotation);
+                        tile.setBlock(stile.block, team, stile.rotation);
                         
                         // 应用配置信息
-                        if (plan.config != null && tile.build != null) {
-                            // 应用建筑配置
-                            tile.build.configure(plan.config);
+                        if (stile.config != null && tile.build != null) {
+                            tile.build.configure(stile.config);
                         }
                     }
                 }
