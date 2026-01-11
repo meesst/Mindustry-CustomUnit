@@ -42,7 +42,7 @@ public class DerivativeUnitFactory extends UnitFactory {
     public DerivativeUnitFactory(String name) {
         super(name);
 
-        ambientSound = Sounds.machine;
+        ambientSound = null;
         ambientSoundVolume = 0.1f;
         flags = EnumSet.of(BlockFlag.factory);
     }
