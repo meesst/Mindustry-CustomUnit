@@ -232,7 +232,6 @@ public class DerivativeUnitFactory extends UnitFactory {
             // 替换默认的单位选择列表为一个简单的按钮
             table.button("量子.虚幻", () -> {
                 // 按钮点击事件，目前为空
-                Log.info("量子.虚幻按钮被点击");
             }).size(200, 50);
         }
     }
