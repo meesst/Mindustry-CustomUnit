@@ -379,9 +379,11 @@ public class DerivativeUnitFactory extends UnitFactory {
                             
                             // 只保存非空气方块，且未被计数过
                             if (block != Blocks.air && !counted.contains(tile.pos())) {
-                                // 计算相对于区域左上角的本地坐标
-                                int localX = i;
-                                int localY = j;
+                                // 计算建筑的中心偏移量
+                                int offset = (block.size - 1) / 2;
+                                // 计算相对于区域左上角的本地坐标（使用建筑中心位置）
+                                int localX = i - offset;
+                                int localY = j - offset;
                                 
                                 Object config = tile.build != null ? tile.build.config() : null;
                                 byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
@@ -394,6 +396,7 @@ public class DerivativeUnitFactory extends UnitFactory {
                                     " at " + localX + "," + localY + 
                                     " (world: " + worldX + "," + worldY + ")" +
                                     " Size: " + block.size +
+                                    " Offset: " + offset +
                                     " Rotation: " + rotation);
                                 
                                 // 标记该建筑的所有瓦片为已计数
@@ -442,9 +445,11 @@ public class DerivativeUnitFactory extends UnitFactory {
                             int rotation = tile.build.rotation;
                             Object config = tile.build.config();
                             
-                            // 计算相对于区域左上角的本地坐标
-                            int localX = i;
-                            int localY = j;
+                            // 计算建筑的中心偏移量
+                            int offset = (buildingType.size - 1) / 2;
+                            // 计算相对于区域左上角的本地坐标（使用建筑中心位置）
+                            int localX = i - offset;
+                            int localY = j - offset;
                             
                             // 创建Schematic.Stile对象
                             tiles.add(new Schematic.Stile(buildingType, localX, localY, config, (byte)rotation));
@@ -454,6 +459,7 @@ public class DerivativeUnitFactory extends UnitFactory {
                                 " at " + localX + "," + localY + 
                                 " (world: " + worldX + "," + worldY + ")" +
                                 " Size: " + buildingType.size +
+                                " Offset: " + offset +
                                 " Rotation: " + rotation);
                             
                             // 标记该建筑的所有瓦片为已计数
@@ -543,14 +549,17 @@ public class DerivativeUnitFactory extends UnitFactory {
             
             // 遍历Schematic中的所有瓦片
             for (Schematic.Stile stile : mapStateB.tiles) {
-                // 计算实际世界坐标
-                int worldX = startX + stile.x;
-                int worldY = startY + stile.y;
+                // 计算建筑的中心偏移量
+                int offset = (stile.block.size - 1) / 2;
+                // 计算实际世界坐标（将中心坐标转换为左上角坐标）
+                int worldX = startX + stile.x + offset;
+                int worldY = startY + stile.y + offset;
                 
                 log("DrawBuildingFromStateB - Drawing building: " + stile.block.name + 
                     " from local: " + stile.x + "," + stile.y + 
                     " to world: " + worldX + "," + worldY + 
                     " Size: " + stile.block.size +
+                    " Offset: " + offset +
                     " Rotation: " + stile.rotation);
                 
                 // 获取对应位置的Tile对象
@@ -591,14 +600,17 @@ public class DerivativeUnitFactory extends UnitFactory {
             
             // 2. 还原状态
             for (Schematic.Stile stile : mapStateA.tiles) {
-                // 计算实际世界坐标
-                int worldX = startX + stile.x;
-                int worldY = startY + stile.y;
+                // 计算建筑的中心偏移量
+                int offset = (stile.block.size - 1) / 2;
+                // 计算实际世界坐标（将中心坐标转换为左上角坐标）
+                int worldX = startX + stile.x + offset;
+                int worldY = startY + stile.y + offset;
                 
                 log("RestoreStateA - Restoring building: " + stile.block.name + 
                     " from local: " + stile.x + "," + stile.y + 
                     " to world: " + worldX + "," + worldY + 
                     " Size: " + stile.block.size +
+                    " Offset: " + offset +
                     " Rotation: " + stile.rotation);
                 
                 // 获取对应位置的Tile对象
