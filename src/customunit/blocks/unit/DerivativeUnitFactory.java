@@ -11,11 +11,11 @@ import arc.math.geom.Geometry;
 import arc.math.geom.Rect;
 import arc.math.geom.Vec2;
 import arc.struct.EnumSet;
+import arc.struct.IntSet;
 import arc.struct.Seq;
 import arc.struct.StringMap;
 import arc.util.Tmp;
 import mindustry.Vars;
-import mindustry.content.Blocks;
 import mindustry.content.Fx;
 import mindustry.content.Items;
 import mindustry.entities.Effect;
@@ -304,6 +304,9 @@ public class DerivativeUnitFactory extends UnitFactory {
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
+            // 使用IntSet集合避免重复保存同一个建筑
+            IntSet added = new IntSet();
+            
             // 保存每个瓦片的状态
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
@@ -312,29 +315,48 @@ public class DerivativeUnitFactory extends UnitFactory {
                     if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
                         Tile tile = world.tile(worldX, worldY);
                         if (tile != null) {
-                            // 计算相对于区域左上角的本地坐标
-                            int localX = i;
-                            int localY = j;
-                            
-                            // 1. 先保存地板
-                            Floor floorType = tile.floor();
-                            if (floorType != null && floorType != Blocks.air.asFloor()) {
-                                tiles.add(new Schematic.Stile(floorType, localX, localY, null, (byte)0));
-                            }
-                            
-                            // 2. 保存墙体
                             Block block = tile.block();
-                            if (block instanceof StaticWall && block != Blocks.air) {
-                                Object config = tile.build != null ? tile.build.config() : null;
-                                byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
-                                tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
-                            }
                             
-                            // 3. 保存其他建筑
-                            else if (block != null && block != Blocks.air && !(block instanceof Floor)) {
-                                Object config = tile.build != null ? tile.build.config() : null;
-                                byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
-                                tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
+                            // 只保存建筑和墙，不保存地板
+                            if (block != null && block != Blocks.air && !(block instanceof Floor)) {
+                                // 计算当前瓦片的唯一索引
+                                int index = worldX + worldY * world.width();
+                                
+                                // 如果已经保存过这个建筑，跳过
+                                if (added.contains(index)) {
+                                    continue;
+                                }
+                                
+                                // 处理多瓦片建筑，获取所有链接的瓦片
+                                Seq<Tile> linked = new Seq<>();
+                                world.getLinkedTilesAs(tile, linked);
+                                
+                                // 计算建筑的主瓦片（左上角）
+                                int minX = worldX;
+                                int minY = worldY;
+                                for (Tile linkedTile : linked) {
+                                    minX = Math.min(minX, linkedTile.x);
+                                    minY = Math.min(minY, linkedTile.y);
+                                }
+                                
+                                // 只有主瓦片需要保存
+                                if (worldX == minX && worldY == minY) {
+                                    // 将所有链接的瓦片标记为已保存
+                                    for (Tile linkedTile : linked) {
+                                        int linkedIndex = linkedTile.x + linkedTile.y * world.width();
+                                        added.add(linkedIndex);
+                                    }
+                                    
+                                    // 计算相对于区域左上角的本地坐标
+                                    int localX = i;
+                                    int localY = j;
+                                    
+                                    Object config = tile.build != null ? tile.build.config() : null;
+                                    byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
+                                    
+                                    // 添加到Schematic中
+                                    tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
+                                }
                             }
                         }
                     }
@@ -354,25 +376,60 @@ public class DerivativeUnitFactory extends UnitFactory {
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
-            // 保存区域内所有建筑的状态
+            // 使用IntSet集合避免重复保存同一个建筑
+            IntSet added = new IntSet();
+            
+            // 保存每个瓦片的状态
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
                     int worldX = startX + i;
                     int worldY = startY + j;
                     if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
                         Tile tile = world.tile(worldX, worldY);
-                        if (tile != null && tile.build != null) {
-                            // 保存建筑状态
-                            Block buildingType = tile.block();
-                            int rotation = tile.build.rotation;
-                            Object config = tile.build.config();
+                        if (tile != null) {
+                            Block block = tile.block();
                             
-                            // 计算相对于区域左上角的本地坐标
-                            int localX = i;
-                            int localY = j;
-                            
-                            // 创建Schematic.Stile对象
-                            tiles.add(new Schematic.Stile(buildingType, localX, localY, config, (byte)rotation));
+                            // 只保存建筑和墙，不保存地板
+                            if (block != null && block != Blocks.air && !(block instanceof Floor)) {
+                                // 计算当前瓦片的唯一索引
+                                int index = worldX + worldY * world.width();
+                                
+                                // 如果已经保存过这个建筑，跳过
+                                if (added.contains(index)) {
+                                    continue;
+                                }
+                                
+                                // 处理多瓦片建筑，获取所有链接的瓦片
+                                Seq<Tile> linked = new Seq<>();
+                                world.getLinkedTilesAs(tile, linked);
+                                
+                                // 计算建筑的主瓦片（左上角）
+                                int minX = worldX;
+                                int minY = worldY;
+                                for (Tile linkedTile : linked) {
+                                    minX = Math.min(minX, linkedTile.x);
+                                    minY = Math.min(minY, linkedTile.y);
+                                }
+                                
+                                // 只有主瓦片需要保存
+                                if (worldX == minX && worldY == minY) {
+                                    // 将所有链接的瓦片标记为已保存
+                                    for (Tile linkedTile : linked) {
+                                        int linkedIndex = linkedTile.x + linkedTile.y * world.width();
+                                        added.add(linkedIndex);
+                                    }
+                                    
+                                    // 计算相对于区域左上角的本地坐标
+                                    int localX = i;
+                                    int localY = j;
+                                    
+                                    Object config = tile.build != null ? tile.build.config() : null;
+                                    byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
+                                    
+                                    // 添加到Schematic中
+                                    tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
+                                }
+                            }
                         }
                     }
                 }
@@ -481,55 +538,23 @@ public class DerivativeUnitFactory extends UnitFactory {
             int startY = getRegionStartY();
             
             // 1. 先将所有瓦片重置为空气，清除所有内容
-            for (int i = 0; i < REGION_SIZE; i++) {
-                for (int j = 0; j < REGION_SIZE; j++) {
-                    int worldX = startX + i;
-                    int worldY = startY + j;
-                    if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
-                        Tile tile = world.tile(worldX, worldY);
-                        if (tile != null) {
-                            // 清除所有建筑和墙体
-                            if (tile.build != null) {
-                                tile.remove();
-                            }
-                            tile.setBlock(Blocks.air);
-                        }
-                    }
-                }
-            }
+            clearRegion();
             
-            // 2. 处理所有地板
+            // 2. 还原状态
             for (Schematic.Stile stile : mapStateA.tiles) {
-                if (stile.block instanceof Floor) {
-                    // 计算实际世界坐标
-                    int worldX = startX + stile.x;
-                    int worldY = startY + stile.y;
+                // 计算实际世界坐标
+                int worldX = startX + stile.x;
+                int worldY = startY + stile.y;
+                
+                // 获取对应位置的Tile对象
+                Tile tile = world.tile(worldX, worldY);
+                if (tile != null) {
+                    // 设置新的建筑或墙
+                    tile.setBlock(stile.block, team, stile.rotation);
                     
-                    // 获取对应位置的Tile对象
-                    Tile tile = world.tile(worldX, worldY);
-                    if (tile != null) {
-                        tile.setFloor((Floor)stile.block);
-                    }
-                }
-            }
-            
-            // 3. 处理所有墙体和建筑
-            for (Schematic.Stile stile : mapStateA.tiles) {
-                if (!(stile.block instanceof Floor)) {
-                    // 计算实际世界坐标
-                    int worldX = startX + stile.x;
-                    int worldY = startY + stile.y;
-                    
-                    // 获取对应位置的Tile对象
-                    Tile tile = world.tile(worldX, worldY);
-                    if (tile != null) {
-                        // 设置新的建筑或墙
-                        tile.setBlock(stile.block, team, stile.rotation);
-                        
-                        // 应用配置信息
-                        if (stile.config != null && tile.build != null) {
-                            tile.build.configure(stile.config);
-                        }
+                    // 应用配置信息
+                    if (stile.config != null && tile.build != null) {
+                        tile.build.configure(stile.config);
                     }
                 }
             }
