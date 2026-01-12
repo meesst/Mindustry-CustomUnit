@@ -438,19 +438,23 @@ public class DerivativeUnitFactory extends UnitFactory {
                             // 清除现有内容
                             tile.remove();
                             
-                            // 确定要放置的方块
-                            Block block;
                             if (i == 0 || i == REGION_SIZE - 1 || j == 0 || j == REGION_SIZE - 1) {
-                                // 边框：使用暗金属墙作为围栏
-                                block = Blocks.darkMetal;
+                                // 边框：使用暗金属墙作为围栏，使用setBlock()方法
+                                tile.setBlock(Blocks.darkMetal, team);
+                                log("ClearAndDrawRegion - Set wall: " + Blocks.darkMetal.name + " at (" + worldX + ", " + worldY + ")");
                             } else {
-                                // 中间：使用暗面板3作为地板
-                                block = Blocks.darkPanel3;
+                                // 中间：使用暗面板3作为地板，使用setFloor()方法
+                                // 先设置为空气，再设置地板
+                                tile.setBlock(Blocks.air, team);
+                                // 检查darkPanel3是否是Floor类型，如果是则使用setFloor()，否则使用setBlock()
+                                if (Blocks.darkPanel3 instanceof Floor) {
+                                    tile.setFloor((Floor)Blocks.darkPanel3);
+                                    log("ClearAndDrawRegion - Set floor: " + Blocks.darkPanel3.name + " at (" + worldX + ", " + worldY + ")");
+                                } else {
+                                    tile.setBlock(Blocks.darkPanel3, team);
+                                    log("ClearAndDrawRegion - Set block: " + Blocks.darkPanel3.name + " at (" + worldX + ", " + worldY + ")");
+                                }
                             }
-                            
-                            // 放置方块
-                            tile.setBlock(block, team);
-                            log("ClearAndDrawRegion - Set " + block.name + " at (" + worldX + ", " + worldY + ")");
                         }
                     }
                 }
@@ -461,55 +465,112 @@ public class DerivativeUnitFactory extends UnitFactory {
         private void placeSchematic(Schematic schematic) {
             log("=== PLACE SCHEMATIC ===");
             
-            // 确定使用哪个基点坐标
-            int originX, originY;
-            if (schematic == mapStateA) {
-                // 使用蓝图A的基点坐标
-                originX = stateAOriginX;
-                originY = stateAOriginY;
-            } else if (schematic == mapStateB) {
-                // 使用蓝图B的基点坐标
-                originX = stateBOriginX;
-                originY = stateBOriginY;
-            } else {
-                // 默认使用当前区域的起始坐标
-                originX = getRegionStartX();
-                originY = getRegionStartY();
-            }
-            
-            log("PlaceSchematic - Using origin: (" + originX + ", " + originY + ")");
             log("PlaceSchematic - Blueprint tiles count: " + schematic.tiles.size);
             
-            // 直接遍历蓝图中的每个瓦片，使用正确的世界坐标
-            for (Schematic.Stile stile : schematic.tiles) {
-                // 计算世界坐标：基点坐标 + 瓦片在蓝图中的相对位置
-                int worldX = originX + stile.x;
-                int worldY = originY + stile.y;
-                
-                Tile tile = world.tile(worldX, worldY);
-                if (tile != null) {
-                    // 清除目标位置的现有建筑
-                    Seq<Tile> linked = new Seq<>();
-                    tile.getLinkedTilesAs(stile.block, linked);
+            // 直接使用游戏内置的蓝图放置方法，确保建筑被放置在正确位置
+            if (schematic == mapStateA) {
+                // 还原完整地图状态，包括地板、墙和建筑
+                // 使用原始的世界坐标放置，不进行坐标转换
+                for (Schematic.Stile stile : schematic.tiles) {
+                    // 直接使用建筑的原始世界坐标
+                    int worldX = stateAOriginX + stile.x;
+                    int worldY = stateAOriginY + stile.y;
                     
-                    for (Tile t : linked) {
-                        if (t.block() != Blocks.air) {
-                            t.remove();
+                    Tile tile = world.tile(worldX, worldY);
+                    if (tile != null) {
+                        // 清除目标位置的现有建筑
+                        Seq<Tile> linked = new Seq<>();
+                        tile.getLinkedTilesAs(stile.block, linked);
+                        
+                        for (Tile t : linked) {
+                            if (t.block() != Blocks.air) {
+                                t.remove();
+                            }
                         }
+                        
+                        // 放置新建筑
+                        tile.setBlock(stile.block, team, stile.rotation);
+                        
+                        // 应用配置
+                        if (stile.config != null && tile.build != null) {
+                            tile.build.configureAny(stile.config);
+                        }
+                        
+                        log("PlaceSchematic - Placed: " + stile.block.name + 
+                            " at " + worldX + "," + worldY + 
+                            " (origin: " + stateAOriginX + "," + stateAOriginY + ", offset: " + stile.x + "," + stile.y + ")" +
+                            " Rotation: " + stile.rotation);
                     }
+                }
+            } else if (schematic == mapStateB) {
+                // 还原建筑状态，只放置建筑
+                for (Schematic.Stile stile : schematic.tiles) {
+                    // 直接使用建筑的原始世界坐标
+                    int worldX = stateBOriginX + stile.x;
+                    int worldY = stateBOriginY + stile.y;
                     
-                    // 放置新建筑
-                    tile.setBlock(stile.block, team, stile.rotation);
-                    
-                    // 应用配置
-                    if (stile.config != null && tile.build != null) {
-                        tile.build.configureAny(stile.config);
+                    Tile tile = world.tile(worldX, worldY);
+                    if (tile != null) {
+                        // 清除目标位置的现有建筑
+                        Seq<Tile> linked = new Seq<>();
+                        tile.getLinkedTilesAs(stile.block, linked);
+                        
+                        for (Tile t : linked) {
+                            if (t.block() != Blocks.air) {
+                                t.remove();
+                            }
+                        }
+                        
+                        // 放置新建筑
+                        tile.setBlock(stile.block, team, stile.rotation);
+                        
+                        // 应用配置
+                        if (stile.config != null && tile.build != null) {
+                            tile.build.configureAny(stile.config);
+                        }
+                        
+                        log("PlaceSchematic - Placed: " + stile.block.name + 
+                            " at " + worldX + "," + worldY + 
+                            " (origin: " + stateBOriginX + "," + stateBOriginY + ", offset: " + stile.x + "," + stile.y + ")" +
+                            " Rotation: " + stile.rotation);
                     }
+                }
+            } else {
+                // 默认情况，使用当前区域的起始坐标
+                int originX = getRegionStartX();
+                int originY = getRegionStartY();
+                
+                log("PlaceSchematic - Using origin: (" + originX + ", " + originY + ")");
+                
+                for (Schematic.Stile stile : schematic.tiles) {
+                    int worldX = originX + stile.x;
+                    int worldY = originY + stile.y;
                     
-                    log("PlaceSchematic - Placed: " + stile.block.name + 
-                        " at " + worldX + "," + worldY + 
-                        " (origin: " + originX + "," + originY + ", offset: " + stile.x + "," + stile.y + ")" +
-                        " Rotation: " + stile.rotation);
+                    Tile tile = world.tile(worldX, worldY);
+                    if (tile != null) {
+                        // 清除目标位置的现有建筑
+                        Seq<Tile> linked = new Seq<>();
+                        tile.getLinkedTilesAs(stile.block, linked);
+                        
+                        for (Tile t : linked) {
+                            if (t.block() != Blocks.air) {
+                                t.remove();
+                            }
+                        }
+                        
+                        // 放置新建筑
+                        tile.setBlock(stile.block, team, stile.rotation);
+                        
+                        // 应用配置
+                        if (stile.config != null && tile.build != null) {
+                            tile.build.configureAny(stile.config);
+                        }
+                        
+                        log("PlaceSchematic - Placed: " + stile.block.name + 
+                            " at " + worldX + "," + worldY + 
+                            " (origin: " + originX + "," + originY + ", offset: " + stile.x + "," + stile.y + ")" +
+                            " Rotation: " + stile.rotation);
+                    }
                 }
             }
         }
