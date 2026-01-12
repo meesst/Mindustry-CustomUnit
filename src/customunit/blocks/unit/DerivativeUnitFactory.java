@@ -305,6 +305,9 @@ public class DerivativeUnitFactory extends UnitFactory {
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
+            // 用于避免重复保存同一个建筑
+            IntSet counted = new IntSet();
+            
             // 保存每个瓦片的状态
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
@@ -315,8 +318,8 @@ public class DerivativeUnitFactory extends UnitFactory {
                         if (tile != null) {
                             Block block = tile.block();
                             
-                            // 只保存建筑和墙，不保存地板
-                            if (block != null && block != Blocks.air && !(block instanceof Floor)) {
+                            // 只保存非空气方块，且未被计数过
+                            if (block != Blocks.air && !counted.contains(tile.pos())) {
                                 // 计算相对于区域左上角的本地坐标
                                 int localX = i;
                                 int localY = j;
@@ -326,6 +329,13 @@ public class DerivativeUnitFactory extends UnitFactory {
                                 
                                 // 添加到Schematic中
                                 tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
+                                
+                                // 标记该建筑的所有瓦片为已计数
+                                Seq<Tile> linked = new Seq<>();
+                                tile.getLinkedTilesAs(block, linked);
+                                for (Tile linkedTile : linked) {
+                                    counted.add(linkedTile.pos());
+                                }
                             }
                         }
                     }
@@ -345,27 +355,34 @@ public class DerivativeUnitFactory extends UnitFactory {
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
-            // 保存每个瓦片的状态
+            // 用于避免重复保存同一个建筑
+            IntSet counted = new IntSet();
+            
+            // 保存区域内所有建筑的状态
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
                     int worldX = startX + i;
                     int worldY = startY + j;
                     if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
                         Tile tile = world.tile(worldX, worldY);
-                        if (tile != null) {
-                            Block block = tile.block();
+                        if (tile != null && tile.build != null && !counted.contains(tile.pos())) {
+                            // 保存建筑状态
+                            Block buildingType = tile.block();
+                            int rotation = tile.build.rotation;
+                            Object config = tile.build.config();
                             
-                            // 只保存建筑和墙，不保存地板
-                            if (block != null && block != Blocks.air && !(block instanceof Floor)) {
-                                // 计算相对于区域左上角的本地坐标
-                                int localX = i;
-                                int localY = j;
-                                
-                                Object config = tile.build != null ? tile.build.config() : null;
-                                byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
-                                
-                                // 添加到Schematic中
-                                tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
+                            // 计算相对于区域左上角的本地坐标
+                            int localX = i;
+                            int localY = j;
+                            
+                            // 创建Schematic.Stile对象
+                            tiles.add(new Schematic.Stile(buildingType, localX, localY, config, (byte)rotation));
+                            
+                            // 标记该建筑的所有瓦片为已计数
+                            Seq<Tile> linked = new Seq<>();
+                            tile.getLinkedTilesAs(buildingType, linked);
+                            for (Tile linkedTile : linked) {
+                                counted.add(linkedTile.pos());
                             }
                         }
                     }
