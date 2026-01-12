@@ -9,11 +9,9 @@ import arc.graphics.g2d.Lines;
 import arc.math.Angles;
 import arc.math.Mathf;
 import arc.math.geom.Geometry;
-import arc.math.geom.Point2;
 import arc.math.geom.Rect;
 import arc.math.geom.Vec2;
 import arc.struct.EnumSet;
-import arc.struct.IntSet;
 import arc.struct.Seq;
 import arc.struct.StringMap;
 import arc.util.Log;
@@ -21,9 +19,9 @@ import arc.util.Tmp;
 import mindustry.Vars;
 import mindustry.content.Blocks;
 import mindustry.content.Fx;
-import mindustry.content.Items;
 import mindustry.entities.Effect;
 import mindustry.game.EventType;
+import mindustry.game.Schematic;
 import mindustry.game.Team;
 import mindustry.gen.Sounds;
 import mindustry.gen.Unit;
@@ -32,14 +30,12 @@ import mindustry.graphics.Layer;
 import mindustry.graphics.Pal;
 import mindustry.world.Tile;
 import mindustry.entities.units.BuildPlan;
-import mindustry.game.Schematic;
+import mindustry.game.Schematics;
 import mindustry.world.Block;
 import mindustry.world.blocks.payloads.UnitPayload;
 import mindustry.world.blocks.units.UnitFactory;
 import mindustry.world.blocks.environment.Floor;
-import mindustry.world.blocks.environment.StaticWall;
 import mindustry.world.meta.BlockFlag;
-import mindustry.world.meta.BuildVisibility;
 
 import static mindustry.Vars.*;
 import static arc.graphics.g2d.Draw.color;
@@ -50,10 +46,6 @@ public class DerivativeUnitFactory extends UnitFactory {
         color(e.color);
         Fill.circle(e.x, e.y, e.rotation * e.fout());
     });
-    
-    // 使用游戏内置的Schematic类保存建筑计划
-    protected Schematic mapStateA;
-    protected Schematic mapStateB;
     
     public DerivativeUnitFactory(String name) {
         super(name);
@@ -131,28 +123,6 @@ public class DerivativeUnitFactory extends UnitFactory {
             } catch (Exception e) {
                 Log.err("Failed to write log: " + e.getMessage());
             }
-        }
-        
-        // 记录建筑信息
-        private void logBuildingInfo(String action, Tile tile) {
-            if (tile != null) {
-                Block block = tile.block();
-                log(action + " - Tile: " + tile.x + "," + tile.y + 
-                    " Block: " + block.name + 
-                    " Size: " + block.size + 
-                    " Build: " + (tile.build != null ? "Yes" : "No") + 
-                    " Rotation: " + (tile.build != null ? tile.build.rotation : "N/A"));
-            }
-        }
-        
-        // 记录区域信息
-        private void logRegionInfo(String action) {
-            int startX = getRegionStartX();
-            int startY = getRegionStartY();
-            log(action + " - Region Start: " + startX + "," + startY + 
-                " Region Size: " + REGION_SIZE + "x" + REGION_SIZE + 
-                " Block Pos: " + tileX() + "," + tileY() + 
-                " Rotation: " + rotation);
         }
 
         public Vec2 getUnitSpawn(){
@@ -308,21 +278,17 @@ public class DerivativeUnitFactory extends UnitFactory {
         // 打开方法：保存状态到变量a，清除画板，绘制14*14区域+变量b的建筑
         private void openQuantumUnreal() {
             log("=== OPEN QUANTUM UNREAL ===");
-            logRegionInfo("Open - Region Info");
             
             // 1. 保存当前状态到变量a
-            saveStateA();
+            mapStateA = captureRegionState();
             
-            // 2. 清除画板
-            clearRegion();
+            // 2. 清除并绘制14*14区域
+            clearAndDraw14x14Region();
             
-            // 3. 绘制14*14区域
-            draw14x14Region();
-            
-            // 4. 绘制变量b中的建筑（如果有）
+            // 3. 绘制变量b中的建筑（如果有）
             if (mapStateB != null) {
                 log("Open - Drawing buildings from state B, count: " + mapStateB.tiles.size);
-                drawBuildingFromStateB();
+                placeSchematic(mapStateB);
             } else {
                 log("Open - No buildings in state B");
             }
@@ -333,18 +299,14 @@ public class DerivativeUnitFactory extends UnitFactory {
         // 关闭方法：保存当前建筑到变量b，清除画板，还原变量a的状态
         private void closeQuantumUnreal() {
             log("=== CLOSE QUANTUM UNREAL ===");
-            logRegionInfo("Close - Region Info");
             
             // 1. 保存当前建筑到变量b
-            saveStateB();
+            mapStateB = captureRegionBuildings();
             
-            // 2. 清除画板
-            clearRegion();
-            
-            // 3. 还原变量a的状态
+            // 2. 还原变量a的状态
             if (mapStateA != null) {
-                log("Close - Restoring state A, building count: " + mapStateA.tiles.size);
-                restoreStateA();
+                log("Close - Restoring state A, block count: " + mapStateA.tiles.size);
+                placeSchematic(mapStateA);
             } else {
                 log("Close - No state A to restore");
             }
@@ -352,183 +314,126 @@ public class DerivativeUnitFactory extends UnitFactory {
             log("=== CLOSE COMPLETE ===");
         }
         
-        // 保存完整地图状态到变量a
-        private void saveStateA() {
-            log("=== SAVE STATE A ===");
-            // 获取14*14区域的起始坐标
+        // 使用游戏蓝图系统捕获区域完整状态
+        private Schematic captureRegionState() {
+            log("=== CAPTURE REGION STATE ===");
+            
             int startX = getRegionStartX();
             int startY = getRegionStartY();
             
-            log("SaveStateA - Start X: " + startX + ", Start Y: " + startY);
+            log("CaptureState - Start X: " + startX + ", Start Y: " + startY);
             
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
-            // 用于避免重复保存同一个建筑
-            IntSet counted = new IntSet();
-            
-            // 保存每个瓦片的状态
+            // 遍历区域内所有瓦片，保存完整状态
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
                     int worldX = startX + i;
                     int worldY = startY + j;
+                    
                     if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
                         Tile tile = world.tile(worldX, worldY);
                         if (tile != null) {
                             Block block = tile.block();
                             
-                            // 只保存非空气方块，且未被计数过
-                            if (block != Blocks.air && !counted.contains(tile.pos())) {
-                                // 计算建筑的中心偏移量
-                                int offset = (block.size - 1) / 2;
-                                // 计算相对于区域左上角的本地坐标（使用建筑中心位置）
-                                int localX = i - offset;
-                                int localY = j - offset;
+                            // 只保存非空气方块
+                            if (block != Blocks.air) {
+                                // 计算相对于区域左上角的本地坐标
+                                int localX = i;
+                                int localY = j;
                                 
+                                // 保存建筑配置和旋转
                                 Object config = tile.build != null ? tile.build.config() : null;
-                                byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
+                                byte rotation = tile.build != null ? (byte) tile.build.rotation : 0;
                                 
                                 // 添加到Schematic中
                                 tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
                                 
-                                // 记录建筑信息
-                                log("SaveStateA - Saved building: " + block.name + 
+                                log("CaptureState - Saved: " + block.name + 
                                     " at " + localX + "," + localY + 
-                                    " (world: " + worldX + "," + worldY + ")" +
-                                    " Size: " + block.size +
-                                    " Offset: " + offset +
-                                    " Rotation: " + rotation);
-                                
-                                // 标记该建筑的所有瓦片为已计数
-                                Seq<Tile> linked = new Seq<>();
-                                tile.getLinkedTilesAs(block, linked);
-                                log("SaveStateA - Linked tiles for " + block.name + ": " + linked.size);
-                                for (Tile linkedTile : linked) {
-                                    counted.add(linkedTile.pos());
-                                }
+                                    " (world: " + worldX + "," + worldY + ")");
                             }
                         }
                     }
                 }
             }
             
-            log("SaveStateA - Total buildings saved: " + tiles.size);
-            // 创建Schematic对象保存整个地图状态
-            mapStateA = new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
+            log("CaptureState - Total blocks saved: " + tiles.size);
+            return new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
         }
         
-        // 保存当前建筑状态到变量b
-        private void saveStateB() {
-            log("=== SAVE STATE B ===");
-            // 获取14*14区域的起始坐标
+        // 使用游戏蓝图系统捕获区域内的建筑
+        private Schematic captureRegionBuildings() {
+            log("=== CAPTURE REGION BUILDINGS ===");
+            
             int startX = getRegionStartX();
             int startY = getRegionStartY();
             
-            log("SaveStateB - Start X: " + startX + ", Start Y: " + startY);
+            log("CaptureBuildings - Start X: " + startX + ", Start Y: " + startY);
             
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
-            // 用于避免重复保存同一个建筑
-            IntSet counted = new IntSet();
-            
-            // 保存区域内所有建筑的状态
+            // 遍历区域内所有瓦片，只保存有build的建筑
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
                     int worldX = startX + i;
                     int worldY = startY + j;
+                    
                     if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
                         Tile tile = world.tile(worldX, worldY);
-                        if (tile != null && tile.build != null && !counted.contains(tile.pos())) {
-                            // 保存建筑状态
-                            Block buildingType = tile.block();
-                            int rotation = tile.build.rotation;
+                        if (tile != null && tile.build != null) {
+                            Block block = tile.block();
+                            
+                            // 计算相对于区域左上角的本地坐标
+                            int localX = i;
+                            int localY = j;
+                            
+                            // 保存建筑配置和旋转
                             Object config = tile.build.config();
+                            byte rotation = (byte) tile.build.rotation;
                             
-                            // 计算建筑的中心偏移量
-                            int offset = (buildingType.size - 1) / 2;
-                            // 计算相对于区域左上角的本地坐标（使用建筑中心位置）
-                            int localX = i - offset;
-                            int localY = j - offset;
+                            // 添加到Schematic中
+                            tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
                             
-                            // 创建Schematic.Stile对象
-                            tiles.add(new Schematic.Stile(buildingType, localX, localY, config, (byte)rotation));
-                            
-                            // 记录建筑信息
-                            log("SaveStateB - Saved building: " + buildingType.name + 
+                            log("CaptureBuildings - Saved: " + block.name + 
                                 " at " + localX + "," + localY + 
-                                " (world: " + worldX + "," + worldY + ")" +
-                                " Size: " + buildingType.size +
-                                " Offset: " + offset +
-                                " Rotation: " + rotation);
-                            
-                            // 标记该建筑的所有瓦片为已计数
-                            Seq<Tile> linked = new Seq<>();
-                            tile.getLinkedTilesAs(buildingType, linked);
-                            log("SaveStateB - Linked tiles for " + buildingType.name + ": " + linked.size);
-                            for (Tile linkedTile : linked) {
-                                counted.add(linkedTile.pos());
-                            }
+                                " (world: " + worldX + "," + worldY + ")");
                         }
                     }
                 }
             }
             
-            log("SaveStateB - Total buildings saved: " + tiles.size);
-            // 创建Schematic对象保存当前建筑状态
-            mapStateB = new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
+            log("CaptureBuildings - Total buildings saved: " + tiles.size);
+            return new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
         }
         
-        // 清除14*14区域
-        private void clearRegion() {
-            // 获取14*14区域的起始坐标
+        // 清除并绘制14*14区域
+        private void clearAndDraw14x14Region() {
+            log("=== CLEAR AND DRAW 14x14 REGION ===");
+            
             int startX = getRegionStartX();
             int startY = getRegionStartY();
             
-            // 清除区域内的所有内容
+            // 清除并绘制区域
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
                     int worldX = startX + i;
                     int worldY = startY + j;
+                    
                     if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
                         Tile tile = world.tile(worldX, worldY);
                         if (tile != null) {
-                            // 清除瓦片内容
-                            // 1. 清除建筑（如果有）
-                            if (tile.build != null) {
-                                tile.remove();
-                            }
+                            // 清除现有内容
+                            tile.remove();
                             
-                            // 2. 清除所有非地板方块（保留地板）
-                            if (tile.block() != null && !(tile.block() instanceof Floor)) {
-                                tile.setAir();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 绘制14*14区域：4边为暗金属墙，中间为暗面板3
-        private void draw14x14Region() {
-            // 获取14*14区域的起始坐标
-            int startX = getRegionStartX();
-            int startY = getRegionStartY();
-            
-            // 绘制区域
-            for (int i = 0; i < REGION_SIZE; i++) {
-                for (int j = 0; j < REGION_SIZE; j++) {
-                    int worldX = startX + i;
-                    int worldY = startY + j;
-                    if (worldX >= 0 && worldX < world.width() && worldY >= 0 && worldY < world.height()) {
-                        Tile tile = world.tile(worldX, worldY);
-                        if (tile != null) {
                             // 绘制边框（暗金属墙）
                             if (i == 0 || i == REGION_SIZE - 1 || j == 0 || j == REGION_SIZE - 1) {
-                                tile.setBlock(Blocks.darkMetal);
+                                tile.setBlock(Blocks.darkMetal, team);
                             } else {
                                 // 绘制中间（暗面板3）
-                                tile.setFloor((Floor) Blocks.darkPanel3);
+                                tile.setBlock(Blocks.darkPanel3, team);
                             }
                         }
                     }
@@ -536,143 +441,65 @@ public class DerivativeUnitFactory extends UnitFactory {
             }
         }
         
-        // 从变量b中绘制建筑
-        private void drawBuildingFromStateB() {
-            if (mapStateB == null) return;
+        // 使用游戏内置方法放置蓝图
+        private void placeSchematic(Schematic schematic) {
+            log("=== PLACE SCHEMATIC ===");
             
-            log("=== DRAW BUILDING FROM STATE B ===");
-            // 获取14*14区域的起始坐标
             int startX = getRegionStartX();
             int startY = getRegionStartY();
             
-            log("DrawBuildingFromStateB - Start X: " + startX + ", Start Y: " + startY);
+            log("PlaceSchematic - Start X: " + startX + ", Start Y: " + startY);
             
-            // 遍历Schematic中的所有瓦片
-            for (Schematic.Stile stile : mapStateB.tiles) {
-                // 计算建筑的中心偏移量
-                int offset = (stile.block.size - 1) / 2;
-                // 直接使用中心坐标，因为我们在保存时已经将左上角坐标转换为了中心坐标
+            // 遍历蓝图中的所有瓦片
+            for (Schematic.Stile stile : schematic.tiles) {
+                // 计算世界坐标
                 int worldX = startX + stile.x;
                 int worldY = startY + stile.y;
                 
-                log("DrawBuildingFromStateB - Drawing building: " + stile.block.name + 
-                    " from local: " + stile.x + "," + stile.y + 
-                    " to world: " + worldX + "," + worldY + 
-                    " Size: " + stile.block.size +
-                    " Offset: " + offset +
-                    " Rotation: " + stile.rotation);
-                
-                // 获取对应位置的Tile对象
                 Tile tile = world.tile(worldX, worldY);
                 if (tile != null) {
-                    // 清除当前位置的建筑
-                    if (tile.build != null) {
-                        tile.remove();
+                    // 使用游戏内置方法处理多瓦片建筑的清除和放置
+                    Seq<Tile> linked = new Seq<>();
+                    tile.getLinkedTilesAs(stile.block, linked);
+                    
+                    // 清除目标位置的现有建筑
+                    for (Tile t : linked) {
+                        if (t.block() != Blocks.air) {
+                            t.remove();
+                        }
                     }
                     
-                    // 创建新建筑
+                    // 放置新建筑
                     tile.setBlock(stile.block, team, stile.rotation);
                     
-                    // 应用配置信息
+                    // 应用配置
                     if (stile.config != null && tile.build != null) {
-                        tile.build.configure(stile.config);
-                        log("DrawBuildingFromStateB - Applied config: " + stile.config.toString());
+                        tile.build.configureAny(stile.config);
                     }
-                } else {
-                    log("DrawBuildingFromStateB - Tile is null at: " + worldX + "," + worldY);
-                }
-            }
-        }
-        
-        // 还原变量a的状态
-        private void restoreStateA() {
-            if (mapStateA == null) return;
-            
-            log("=== RESTORE STATE A ===");
-            // 获取14*14区域的起始坐标
-            int startX = getRegionStartX();
-            int startY = getRegionStartY();
-            
-            log("RestoreStateA - Start X: " + startX + ", Start Y: " + startY);
-            
-            // 1. 先将所有瓦片重置为空气，清除所有内容
-            clearRegion();
-            
-            // 2. 还原状态
-            for (Schematic.Stile stile : mapStateA.tiles) {
-                // 计算建筑的中心偏移量
-                int offset = (stile.block.size - 1) / 2;
-                // 直接使用中心坐标，因为我们在保存时已经将左上角坐标转换为了中心坐标
-                int worldX = startX + stile.x;
-                int worldY = startY + stile.y;
-                
-                log("RestoreStateA - Restoring building: " + stile.block.name + 
-                    " from local: " + stile.x + "," + stile.y + 
-                    " to world: " + worldX + "," + worldY + 
-                    " Size: " + stile.block.size +
-                    " Offset: " + offset +
-                    " Rotation: " + stile.rotation);
-                
-                // 获取对应位置的Tile对象
-                Tile tile = world.tile(worldX, worldY);
-                if (tile != null) {
-                    // 设置新的建筑或墙
-                    tile.setBlock(stile.block, team, stile.rotation);
                     
-                    // 应用配置信息
-                    if (stile.config != null && tile.build != null) {
-                        tile.build.configure(stile.config);
-                        log("RestoreStateA - Applied config: " + stile.config.toString());
-                    }
-                } else {
-                    log("RestoreStateA - Tile is null at: " + worldX + "," + worldY);
+                    log("PlaceSchematic - Placed: " + stile.block.name + 
+                        " at " + worldX + "," + worldY + 
+                        " Rotation: " + stile.rotation);
                 }
             }
         }
         
         // 获取14*14区域的起始X坐标
         private int getRegionStartX() {
-            // 获取建筑的瓦片坐标
             int tileX = tileX();
-            int tileY = tileY();
-            
-            // 建筑背方是虚线框的对面
-            // 虚线框在建筑前方，所以背方是相反方向
             int dir = rotation;
-            
-            // 计算背方的偏移量（与虚线框相反方向）
-            // 虚线框偏移：tilesize * (areaSize + size)/2f
-            // 背方偏移：与虚线框相反方向，所以使用负的方向向量
             float len = tilesize * (areaSize + size)/2f;
             int offsetX = Math.round(-Geometry.d4x(dir) * len / tilesize);
-            int offsetY = Math.round(-Geometry.d4y(dir) * len / tilesize);
-            
-            // 计算14*14区域的起始坐标，确保区域在建筑背方
-            int startX = tileX + offsetX - REGION_SIZE / 2;
-            int startY = tileY + offsetY - REGION_SIZE / 2;
-            
-            return startX;
+            return tileX + offsetX - REGION_SIZE / 2;
         }
         
         // 获取14*14区域的起始Y坐标
         private int getRegionStartY() {
-            // 获取建筑的瓦片坐标
-            int tileX = tileX();
             int tileY = tileY();
-            
-            // 建筑背方是虚线框的对面
             int dir = rotation;
-            
-            // 计算背方的偏移量
             float len = tilesize * (areaSize + size)/2f;
-            int offsetX = Math.round(-Geometry.d4x(dir) * len / tilesize);
             int offsetY = Math.round(-Geometry.d4y(dir) * len / tilesize);
-            
-            // 计算14*14区域的起始坐标
-            int startX = tileX + offsetX - REGION_SIZE / 2;
-            int startY = tileY + offsetY - REGION_SIZE / 2;
-            
-            return startY;
+            return tileY + offsetY - REGION_SIZE / 2;
         }
     }
 }
