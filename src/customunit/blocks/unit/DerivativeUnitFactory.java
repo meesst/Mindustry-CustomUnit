@@ -305,9 +305,6 @@ public class DerivativeUnitFactory extends UnitFactory {
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
-            // 使用IntSet集合避免重复保存同一个建筑
-            IntSet added = new IntSet();
-            
             // 保存每个瓦片的状态
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
@@ -320,44 +317,15 @@ public class DerivativeUnitFactory extends UnitFactory {
                             
                             // 只保存建筑和墙，不保存地板
                             if (block != null && block != Blocks.air && !(block instanceof Floor)) {
-                                // 计算当前瓦片的唯一索引
-                                int index = worldX + worldY * world.width();
+                                // 计算相对于区域左上角的本地坐标
+                                int localX = i;
+                                int localY = j;
                                 
-                                // 如果已经保存过这个建筑，跳过
-                                if (added.contains(index)) {
-                                    continue;
-                                }
+                                Object config = tile.build != null ? tile.build.config() : null;
+                                byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
                                 
-                                // 处理多瓦片建筑，获取所有链接的瓦片
-                                Seq<Tile> linked = new Seq<>();
-                                block.getLinkedTiles(tile, linked);
-                                
-                                // 计算建筑的主瓦片（左上角）
-                                int minX = worldX;
-                                int minY = worldY;
-                                for (Tile linkedTile : linked) {
-                                    minX = Math.min(minX, linkedTile.x);
-                                    minY = Math.min(minY, linkedTile.y);
-                                }
-                                
-                                // 只有主瓦片需要保存
-                                if (worldX == minX && worldY == minY) {
-                                    // 将所有链接的瓦片标记为已保存
-                                    for (Tile linkedTile : linked) {
-                                        int linkedIndex = linkedTile.x + linkedTile.y * world.width();
-                                        added.add(linkedIndex);
-                                    }
-                                    
-                                    // 计算相对于区域左上角的本地坐标
-                                    int localX = i;
-                                    int localY = j;
-                                    
-                                    Object config = tile.build != null ? tile.build.config() : null;
-                                    byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
-                                    
-                                    // 添加到Schematic中
-                                    tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
-                                }
+                                // 添加到Schematic中
+                                tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
                             }
                         }
                     }
@@ -377,9 +345,6 @@ public class DerivativeUnitFactory extends UnitFactory {
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
             
-            // 使用IntSet集合避免重复保存同一个建筑
-            IntSet added = new IntSet();
-            
             // 保存每个瓦片的状态
             for (int i = 0; i < REGION_SIZE; i++) {
                 for (int j = 0; j < REGION_SIZE; j++) {
@@ -392,44 +357,15 @@ public class DerivativeUnitFactory extends UnitFactory {
                             
                             // 只保存建筑和墙，不保存地板
                             if (block != null && block != Blocks.air && !(block instanceof Floor)) {
-                                // 计算当前瓦片的唯一索引
-                                int index = worldX + worldY * world.width();
+                                // 计算相对于区域左上角的本地坐标
+                                int localX = i;
+                                int localY = j;
                                 
-                                // 如果已经保存过这个建筑，跳过
-                                if (added.contains(index)) {
-                                    continue;
-                                }
+                                Object config = tile.build != null ? tile.build.config() : null;
+                                byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
                                 
-                                // 处理多瓦片建筑，获取所有链接的瓦片
-                                Seq<Tile> linked = new Seq<>();
-                                block.getLinkedTiles(tile, linked);
-                                
-                                // 计算建筑的主瓦片（左上角）
-                                int minX = worldX;
-                                int minY = worldY;
-                                for (Tile linkedTile : linked) {
-                                    minX = Math.min(minX, linkedTile.x);
-                                    minY = Math.min(minY, linkedTile.y);
-                                }
-                                
-                                // 只有主瓦片需要保存
-                                if (worldX == minX && worldY == minY) {
-                                    // 将所有链接的瓦片标记为已保存
-                                    for (Tile linkedTile : linked) {
-                                        int linkedIndex = linkedTile.x + linkedTile.y * world.width();
-                                        added.add(linkedIndex);
-                                    }
-                                    
-                                    // 计算相对于区域左上角的本地坐标
-                                    int localX = i;
-                                    int localY = j;
-                                    
-                                    Object config = tile.build != null ? tile.build.config() : null;
-                                    byte rotation = tile.build != null ? (byte)tile.build.rotation : 0;
-                                    
-                                    // 添加到Schematic中
-                                    tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
-                                }
+                                // 添加到Schematic中
+                                tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
                             }
                         }
                     }
