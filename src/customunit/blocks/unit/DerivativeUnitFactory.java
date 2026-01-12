@@ -2,18 +2,21 @@ package customunit.blocks.unit;
 
 import arc.Core;
 import arc.Events;
+import arc.files.Fi;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.graphics.g2d.Lines;
 import arc.math.Angles;
 import arc.math.Mathf;
 import arc.math.geom.Geometry;
+import arc.math.geom.Point2;
 import arc.math.geom.Rect;
 import arc.math.geom.Vec2;
 import arc.struct.EnumSet;
 import arc.struct.IntSet;
 import arc.struct.Seq;
 import arc.struct.StringMap;
+import arc.util.Log;
 import arc.util.Tmp;
 import mindustry.Vars;
 import mindustry.content.Blocks;
@@ -116,6 +119,41 @@ public class DerivativeUnitFactory extends UnitFactory {
         
         // 14*14区域的大小
         private static final int REGION_SIZE = 14;
+        
+        // 日志文件路径
+        private static final String LOG_PATH = "E:\\SteamLibrary\\steamapps\\common\\Mindustry\\nestedlogic.log";
+        
+        // 日志记录方法
+        private void log(String message) {
+            try {
+                Fi logFile = Core.files.absolute(LOG_PATH);
+                logFile.writeString("[" + System.currentTimeMillis() + "] " + message + "\n", true);
+            } catch (Exception e) {
+                Log.err("Failed to write log: " + e.getMessage());
+            }
+        }
+        
+        // 记录建筑信息
+        private void logBuildingInfo(String action, Tile tile) {
+            if (tile != null) {
+                Block block = tile.block();
+                log(action + " - Tile: " + tile.x + "," + tile.y + 
+                    " Block: " + block.name + 
+                    " Size: " + block.size + 
+                    " Build: " + (tile.build != null ? "Yes" : "No") + 
+                    " Rotation: " + (tile.build != null ? tile.build.rotation : "N/A"));
+            }
+        }
+        
+        // 记录区域信息
+        private void logRegionInfo(String action) {
+            int startX = getRegionStartX();
+            int startY = getRegionStartY();
+            log(action + " - Region Start: " + startX + "," + startY + 
+                " Region Size: " + REGION_SIZE + "x" + REGION_SIZE + 
+                " Block Pos: " + tileX() + "," + tileY() + 
+                " Rotation: " + rotation);
+        }
 
         public Vec2 getUnitSpawn(){
             float len = tilesize * (areaSize + size)/2f;
@@ -269,6 +307,9 @@ public class DerivativeUnitFactory extends UnitFactory {
         
         // 打开方法：保存状态到变量a，清除画板，绘制14*14区域+变量b的建筑
         private void openQuantumUnreal() {
+            log("=== OPEN QUANTUM UNREAL ===");
+            logRegionInfo("Open - Region Info");
+            
             // 1. 保存当前状态到变量a
             saveStateA();
             
@@ -280,12 +321,20 @@ public class DerivativeUnitFactory extends UnitFactory {
             
             // 4. 绘制变量b中的建筑（如果有）
             if (mapStateB != null) {
+                log("Open - Drawing buildings from state B, count: " + mapStateB.tiles.size);
                 drawBuildingFromStateB();
+            } else {
+                log("Open - No buildings in state B");
             }
+            
+            log("=== OPEN COMPLETE ===");
         }
         
         // 关闭方法：保存当前建筑到变量b，清除画板，还原变量a的状态
         private void closeQuantumUnreal() {
+            log("=== CLOSE QUANTUM UNREAL ===");
+            logRegionInfo("Close - Region Info");
+            
             // 1. 保存当前建筑到变量b
             saveStateB();
             
@@ -293,14 +342,24 @@ public class DerivativeUnitFactory extends UnitFactory {
             clearRegion();
             
             // 3. 还原变量a的状态
-            restoreStateA();
+            if (mapStateA != null) {
+                log("Close - Restoring state A, building count: " + mapStateA.tiles.size);
+                restoreStateA();
+            } else {
+                log("Close - No state A to restore");
+            }
+            
+            log("=== CLOSE COMPLETE ===");
         }
         
         // 保存完整地图状态到变量a
         private void saveStateA() {
+            log("=== SAVE STATE A ===");
             // 获取14*14区域的起始坐标
             int startX = getRegionStartX();
             int startY = getRegionStartY();
+            
+            log("SaveStateA - Start X: " + startX + ", Start Y: " + startY);
             
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
@@ -330,9 +389,17 @@ public class DerivativeUnitFactory extends UnitFactory {
                                 // 添加到Schematic中
                                 tiles.add(new Schematic.Stile(block, localX, localY, config, rotation));
                                 
+                                // 记录建筑信息
+                                log("SaveStateA - Saved building: " + block.name + 
+                                    " at " + localX + "," + localY + 
+                                    " (world: " + worldX + "," + worldY + ")" +
+                                    " Size: " + block.size +
+                                    " Rotation: " + rotation);
+                                
                                 // 标记该建筑的所有瓦片为已计数
                                 Seq<Tile> linked = new Seq<>();
                                 tile.getLinkedTilesAs(block, linked);
+                                log("SaveStateA - Linked tiles for " + block.name + ": " + linked.size);
                                 for (Tile linkedTile : linked) {
                                     counted.add(linkedTile.pos());
                                 }
@@ -342,15 +409,19 @@ public class DerivativeUnitFactory extends UnitFactory {
                 }
             }
             
+            log("SaveStateA - Total buildings saved: " + tiles.size);
             // 创建Schematic对象保存整个地图状态
             mapStateA = new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
         }
         
         // 保存当前建筑状态到变量b
         private void saveStateB() {
+            log("=== SAVE STATE B ===");
             // 获取14*14区域的起始坐标
             int startX = getRegionStartX();
             int startY = getRegionStartY();
+            
+            log("SaveStateB - Start X: " + startX + ", Start Y: " + startY);
             
             // 创建Schematic的tiles列表
             Seq<Schematic.Stile> tiles = new Seq<>();
@@ -378,9 +449,17 @@ public class DerivativeUnitFactory extends UnitFactory {
                             // 创建Schematic.Stile对象
                             tiles.add(new Schematic.Stile(buildingType, localX, localY, config, (byte)rotation));
                             
+                            // 记录建筑信息
+                            log("SaveStateB - Saved building: " + buildingType.name + 
+                                " at " + localX + "," + localY + 
+                                " (world: " + worldX + "," + worldY + ")" +
+                                " Size: " + buildingType.size +
+                                " Rotation: " + rotation);
+                            
                             // 标记该建筑的所有瓦片为已计数
                             Seq<Tile> linked = new Seq<>();
                             tile.getLinkedTilesAs(buildingType, linked);
+                            log("SaveStateB - Linked tiles for " + buildingType.name + ": " + linked.size);
                             for (Tile linkedTile : linked) {
                                 counted.add(linkedTile.pos());
                             }
@@ -389,6 +468,7 @@ public class DerivativeUnitFactory extends UnitFactory {
                 }
             }
             
+            log("SaveStateB - Total buildings saved: " + tiles.size);
             // 创建Schematic对象保存当前建筑状态
             mapStateB = new Schematic(tiles, new StringMap(), REGION_SIZE, REGION_SIZE);
         }
@@ -454,15 +534,24 @@ public class DerivativeUnitFactory extends UnitFactory {
         private void drawBuildingFromStateB() {
             if (mapStateB == null) return;
             
+            log("=== DRAW BUILDING FROM STATE B ===");
             // 获取14*14区域的起始坐标
             int startX = getRegionStartX();
             int startY = getRegionStartY();
+            
+            log("DrawBuildingFromStateB - Start X: " + startX + ", Start Y: " + startY);
             
             // 遍历Schematic中的所有瓦片
             for (Schematic.Stile stile : mapStateB.tiles) {
                 // 计算实际世界坐标
                 int worldX = startX + stile.x;
                 int worldY = startY + stile.y;
+                
+                log("DrawBuildingFromStateB - Drawing building: " + stile.block.name + 
+                    " from local: " + stile.x + "," + stile.y + 
+                    " to world: " + worldX + "," + worldY + 
+                    " Size: " + stile.block.size +
+                    " Rotation: " + stile.rotation);
                 
                 // 获取对应位置的Tile对象
                 Tile tile = world.tile(worldX, worldY);
@@ -478,7 +567,10 @@ public class DerivativeUnitFactory extends UnitFactory {
                     // 应用配置信息
                     if (stile.config != null && tile.build != null) {
                         tile.build.configure(stile.config);
+                        log("DrawBuildingFromStateB - Applied config: " + stile.config.toString());
                     }
+                } else {
+                    log("DrawBuildingFromStateB - Tile is null at: " + worldX + "," + worldY);
                 }
             }
         }
@@ -487,9 +579,12 @@ public class DerivativeUnitFactory extends UnitFactory {
         private void restoreStateA() {
             if (mapStateA == null) return;
             
+            log("=== RESTORE STATE A ===");
             // 获取14*14区域的起始坐标
             int startX = getRegionStartX();
             int startY = getRegionStartY();
+            
+            log("RestoreStateA - Start X: " + startX + ", Start Y: " + startY);
             
             // 1. 先将所有瓦片重置为空气，清除所有内容
             clearRegion();
@@ -500,6 +595,12 @@ public class DerivativeUnitFactory extends UnitFactory {
                 int worldX = startX + stile.x;
                 int worldY = startY + stile.y;
                 
+                log("RestoreStateA - Restoring building: " + stile.block.name + 
+                    " from local: " + stile.x + "," + stile.y + 
+                    " to world: " + worldX + "," + worldY + 
+                    " Size: " + stile.block.size +
+                    " Rotation: " + stile.rotation);
+                
                 // 获取对应位置的Tile对象
                 Tile tile = world.tile(worldX, worldY);
                 if (tile != null) {
@@ -509,7 +610,10 @@ public class DerivativeUnitFactory extends UnitFactory {
                     // 应用配置信息
                     if (stile.config != null && tile.build != null) {
                         tile.build.configure(stile.config);
+                        log("RestoreStateA - Applied config: " + stile.config.toString());
                     }
+                } else {
+                    log("RestoreStateA - Tile is null at: " + worldX + "," + worldY);
                 }
             }
         }
