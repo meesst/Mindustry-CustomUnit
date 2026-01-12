@@ -16,6 +16,7 @@ import arc.struct.Seq;
 import arc.struct.StringMap;
 import arc.util.Tmp;
 import mindustry.Vars;
+import mindustry.content.Blocks;
 import mindustry.content.Fx;
 import mindustry.content.Items;
 import mindustry.entities.Effect;
@@ -329,7 +330,7 @@ public class DerivativeUnitFactory extends UnitFactory {
                                 
                                 // 处理多瓦片建筑，获取所有链接的瓦片
                                 Seq<Tile> linked = new Seq<>();
-                                world.getLinkedTilesAs(tile, linked);
+                                block.getLinkedTiles(tile, linked);
                                 
                                 // 计算建筑的主瓦片（左上角）
                                 int minX = worldX;
@@ -401,7 +402,7 @@ public class DerivativeUnitFactory extends UnitFactory {
                                 
                                 // 处理多瓦片建筑，获取所有链接的瓦片
                                 Seq<Tile> linked = new Seq<>();
-                                world.getLinkedTilesAs(tile, linked);
+                                block.getLinkedTiles(tile, linked);
                                 
                                 // 计算建筑的主瓦片（左上角）
                                 int minX = worldX;
